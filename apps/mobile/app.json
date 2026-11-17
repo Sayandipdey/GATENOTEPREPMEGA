@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Notes Platform",
+    "slug": "notes-platform",
+    "scheme": "notesplatform",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.notesplatform.app"
+    },
+    "android": {
+      "package": "com.notesplatform.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#030712"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

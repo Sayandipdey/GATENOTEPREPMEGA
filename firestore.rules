@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Server-only architecture: all Firestore access is through Firebase Admin SDK in Next.js API routes
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
