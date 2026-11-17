@@ -4,6 +4,7 @@ import { SubjectDetailView } from "./SubjectDetailView";
 import type { Subject, Folder, Item } from "@notes/shared";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 interface SubjectPageProps {
   params: { id: string };

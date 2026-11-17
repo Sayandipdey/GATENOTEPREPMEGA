@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
-import { jsonOk, jsonError } from "@/lib/helpers";
+import { jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 
 export async function PUT(
   req: NextRequest,
@@ -19,6 +19,7 @@ export async function PUT(
     if (!updated) {
       return jsonError("Folder not found", 404);
     }
+    revalidateAllNotes(updated.subjectId);
     return jsonOk(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to update folder";
@@ -37,10 +38,12 @@ export async function DELETE(
     }
 
     const { id } = params;
+    const existing = await db.folders.get(id);
     const deleted = await db.folders.delete(id);
     if (!deleted) {
       return jsonError("Folder not found", 404);
     }
+    revalidateAllNotes(existing?.subjectId);
     return jsonOk({ success: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to delete folder";

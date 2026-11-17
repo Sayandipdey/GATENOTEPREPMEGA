@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAdmin, jsonOk, jsonError } from "@/lib/helpers";
+import { requireAdmin, jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 import { NoteCreateSchema } from "@notes/shared";
 
 /**
@@ -25,6 +25,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const note = await db.notes.create(data);
+    revalidateAllNotes(data.subjectId);
     return jsonOk(note, 201);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to create note";

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { SheetCommitSchema } from "@notes/shared";
 import { getCurrentUser } from "@/lib/current-user";
-import { jsonOk, jsonError } from "@/lib/helpers";
+import { jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 
 /**
  * POST /api/admin/subjects/[id]/sheet/commit
@@ -32,6 +32,7 @@ export async function POST(
     }
 
     const result = await db.sheet.commit(subjectId, parsed.data);
+    revalidateAllNotes(subjectId);
     return jsonOk(result);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to commit sheet changes";

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { ItemCreateSchema } from "@notes/shared";
 import { getCurrentUser } from "@/lib/current-user";
-import { jsonOk, jsonError } from "@/lib/helpers";
+import { jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -18,6 +18,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const item = await db.items.create(parsed.data as any);
+    revalidateAllNotes(item.subjectId);
     return jsonOk(item, 201);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to create item";

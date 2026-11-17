@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getUserIdFromRequest, jsonOk, jsonError } from "@/lib/helpers";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 /**
  * GET /api/subjects
  * Returns all published GATE subjects with item counts.

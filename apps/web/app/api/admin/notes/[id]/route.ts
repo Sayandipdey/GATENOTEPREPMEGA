@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireAdmin, jsonOk, jsonError } from "@/lib/helpers";
+import { requireAdmin, jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 import { NOTE_TYPES } from "@notes/shared";
 
 // Manual partial schema to avoid .partial() on ZodEffects (superRefine)
@@ -63,6 +63,7 @@ export async function PUT(
       return jsonError("Note not found", 404);
     }
 
+    revalidateAllNotes(updated.subjectId);
     return jsonOk(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to update note";
@@ -82,11 +83,13 @@ export async function DELETE(
     requireAdmin(req);
     const { id } = params;
 
+    const existing = await db.notes.get(id);
     const deleted = await db.notes.delete(id);
     if (!deleted) {
       return jsonError("Note not found", 404);
     }
 
+    revalidateAllNotes(existing?.subjectId);
     return jsonOk({ deleted: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to delete note";

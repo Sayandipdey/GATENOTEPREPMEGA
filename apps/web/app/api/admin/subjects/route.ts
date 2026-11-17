@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAdmin, jsonOk, jsonError } from "@/lib/helpers";
+import { requireAdmin, jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 import { SubjectCreateSchema } from "@notes/shared";
 
 /**
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const newSubject = await db.subjects.create(parsed.data);
+    revalidateAllNotes(newSubject.id);
     return jsonOk(newSubject, 201);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to create subject";

@@ -8,6 +8,31 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
+
+// ---------------------------------------------------------------------------
+// Cache Invalidation
+// ---------------------------------------------------------------------------
+
+/**
+ * Revalidates public user pages and admin pages so that updates
+ * (subjects, folders, note links, sheet edits) immediately reflect
+ * on the main user website.
+ */
+export function revalidateAllNotes(subjectId?: string): void {
+  try {
+    revalidatePath("/", "layout");
+    revalidatePath("/");
+    revalidatePath("/admin/subjects");
+    if (subjectId) {
+      revalidatePath(`/subjects/${subjectId}`);
+      revalidatePath(`/admin/subjects/${subjectId}`);
+    }
+  } catch (err) {
+    // Graceful fallback if invoked outside Next.js request context
+    console.warn("revalidatePath skipped:", err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Header readers

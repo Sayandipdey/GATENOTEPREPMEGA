@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAdmin, jsonOk, jsonError } from "@/lib/helpers";
+import { requireAdmin, jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 import { SubjectCreateSchema } from "@notes/shared";
 
 /**
@@ -49,6 +49,7 @@ export async function PUT(
       return jsonError("Subject not found", 404);
     }
 
+    revalidateAllNotes(id);
     return jsonOk(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to update subject";
@@ -73,6 +74,7 @@ export async function DELETE(
       return jsonError("Subject not found", 404);
     }
 
+    revalidateAllNotes(id);
     return jsonOk({ deleted: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to delete subject";

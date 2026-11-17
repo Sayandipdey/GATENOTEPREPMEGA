@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAdmin, jsonOk, jsonError } from "@/lib/helpers";
+import { requireAdmin, jsonOk, jsonError, revalidateAllNotes } from "@/lib/helpers";
 
 /**
  * POST /api/admin/subjects/reorder
@@ -17,6 +17,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     await db.subjects.reorder(ids);
+    revalidateAllNotes();
     return jsonOk({ reordered: true, count: ids.length });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to reorder subjects";

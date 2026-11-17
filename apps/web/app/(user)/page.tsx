@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import type { Subject, Item } from "@notes/shared";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function getInitialData(): Promise<{
   subjects: (Subject & { itemCount: number })[];

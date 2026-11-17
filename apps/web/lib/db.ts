@@ -48,9 +48,58 @@ interface DatabaseSchema {
 }
 
 let memoryDb: DatabaseSchema | null = null;
+let redisInstance: any = null;
+let redisInitialized = false;
+
+function getRedis() {
+  if (redisInitialized) return redisInstance;
+  redisInitialized = true;
+
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+  if (url && token) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { Redis } = require("@upstash/redis");
+      redisInstance = new Redis({ url, token });
+    } catch (err) {
+      console.warn("Could not initialize Upstash Redis:", err);
+    }
+  }
+  return redisInstance;
+}
 
 function getDbFilePath(): string {
-  // Check candidate locations for existing db.json
+  const tmpPath = path.resolve("/tmp", "gate-notes-db.json");
+
+  // In Vercel serverless / AWS Lambda, process.cwd() is read-only.
+  // /tmp is the only writable storage.
+  // We MUST prioritize /tmp if it exists so that runtime updates are never overshadowed
+  // by read-only static seed files in process.cwd().
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    if (fs.existsSync(tmpPath)) return tmpPath;
+
+    // First boot on this lambda instance: seed /tmp from bundled seed file if present
+    const candidates = [
+      path.resolve(process.cwd(), "data", "db.json"),
+      path.resolve(process.cwd(), "apps", "web", "data", "db.json"),
+      path.resolve(__dirname, "..", "data", "db.json"),
+    ];
+
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) {
+          const raw = fs.readFileSync(c, "utf-8");
+          fs.writeFileSync(tmpPath, raw, "utf-8");
+          return tmpPath;
+        }
+      } catch {}
+    }
+    return tmpPath;
+  }
+
+  // Local development / non-serverless
   const candidates = [
     path.resolve(process.cwd(), "data", "db.json"),
     path.resolve(process.cwd(), "apps", "web", "data", "db.json"),
@@ -62,12 +111,6 @@ function getDbFilePath(): string {
       if (fs.existsSync(c)) return c;
     } catch {}
   }
-
-  // In Vercel serverless functions, /tmp is writable
-  const tmpPath = path.resolve("/tmp", "gate-notes-db.json");
-  try {
-    if (fs.existsSync(tmpPath)) return tmpPath;
-  } catch {}
 
   const defaultDir = path.resolve(process.cwd(), "data");
   if (!fs.existsSync(defaultDir)) {
@@ -244,7 +287,20 @@ function getDefaultData(): DatabaseSchema {
   };
 }
 
-function loadDatabase(): DatabaseSchema {
+async function loadDatabase(): Promise<DatabaseSchema> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const remote = await redis.get("gate_notes_db");
+      if (remote && typeof remote === "object" && (remote as any).subjects) {
+        memoryDb = remote as DatabaseSchema;
+        return memoryDb!;
+      }
+    } catch (err) {
+      console.warn("Could not read from Redis, falling back to disk:", err);
+    }
+  }
+
   const filePath = getDbFilePath();
   try {
     if (fs.existsSync(filePath)) {
@@ -273,6 +329,9 @@ function loadDatabase(): DatabaseSchema {
       if (!parsed.stats.otpUsage) parsed.stats.otpUsage = {};
 
       memoryDb = parsed;
+      if (redis) {
+        redis.set("gate_notes_db", memoryDb).catch(() => {});
+      }
       return memoryDb!;
     }
   } catch (err) {
@@ -281,12 +340,22 @@ function loadDatabase(): DatabaseSchema {
 
   if (memoryDb) return memoryDb;
   memoryDb = getDefaultData();
-  saveDatabase(memoryDb);
+  await saveDatabase(memoryDb);
   return memoryDb;
 }
 
-function saveDatabase(data: DatabaseSchema): void {
+async function saveDatabase(data: DatabaseSchema): Promise<void> {
   memoryDb = data;
+
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await redis.set("gate_notes_db", data);
+    } catch (err) {
+      console.warn("Could not persist to Redis:", err);
+    }
+  }
+
   const filePath = getDbFilePath();
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
@@ -307,24 +376,24 @@ export const db = {
   // Users
   users: {
     async get(id: string): Promise<User | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return data.users[id] ?? null;
     },
     async set(id: string, user: User): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       data.users[id] = user;
       data.stats.totalUsers = Object.keys(data.users).length;
-      saveDatabase(data);
+      await saveDatabase(data);
     },
     async update(id: string, partial: Partial<User>): Promise<User | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.users[id]) return null;
       data.users[id] = { ...data.users[id], ...partial };
-      saveDatabase(data);
+      await saveDatabase(data);
       return data.users[id];
     },
     async list(): Promise<User[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return Object.values(data.users).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -334,11 +403,11 @@ export const db = {
   // Subjects
   subjects: {
     async get(id: string): Promise<Subject | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return data.subjects[id] ?? null;
     },
     async create(input: Omit<Subject, "id" | "createdAt">): Promise<Subject> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const id = "sub_" + Math.random().toString(36).substring(2, 9);
       const subject: Subject = {
         id,
@@ -347,18 +416,18 @@ export const db = {
       };
       data.subjects[id] = subject;
       data.stats.totalSubjects = Object.keys(data.subjects).length;
-      saveDatabase(data);
+      await saveDatabase(data);
       return subject;
     },
     async update(id: string, partial: Partial<Subject>): Promise<Subject | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.subjects[id]) return null;
       data.subjects[id] = { ...data.subjects[id], ...partial };
-      saveDatabase(data);
+      await saveDatabase(data);
       return data.subjects[id];
     },
     async delete(id: string): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.subjects[id]) return false;
       delete data.subjects[id];
 
@@ -378,20 +447,20 @@ export const db = {
 
       data.stats.totalSubjects = Object.keys(data.subjects).length;
       data.stats.totalNotes = Object.keys(data.items).length;
-      saveDatabase(data);
+      await saveDatabase(data);
       return true;
     },
     async reorder(ids: string[]): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       ids.forEach((id, index) => {
         if (data.subjects[id]) {
           data.subjects[id].order = index;
         }
       });
-      saveDatabase(data);
+      await saveDatabase(data);
     },
     async list(publishedOnly = false): Promise<Subject[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       let list = Object.values(data.subjects);
       if (publishedOnly) {
         list = list.filter((s) => s.isPublished);
@@ -403,11 +472,11 @@ export const db = {
   // Folders
   folders: {
     async get(id: string): Promise<Folder | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return data.folders[id] ?? null;
     },
     async create(input: Omit<Folder, "id" | "createdAt">): Promise<Folder> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const id = "fld_" + Math.random().toString(36).substring(2, 9);
       const folder: Folder = {
         id,
@@ -416,18 +485,18 @@ export const db = {
         createdAt: new Date().toISOString(),
       };
       data.folders[id] = folder;
-      saveDatabase(data);
+      await saveDatabase(data);
       return folder;
     },
     async update(id: string, partial: Partial<Folder>): Promise<Folder | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.folders[id]) return null;
       data.folders[id] = { ...data.folders[id], ...partial };
-      saveDatabase(data);
+      await saveDatabase(data);
       return data.folders[id];
     },
     async delete(id: string): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.folders[id]) return false;
 
       // Find all subfolder IDs recursively
@@ -457,34 +526,34 @@ export const db = {
       });
 
       data.stats.totalNotes = Object.keys(data.items).length;
-      saveDatabase(data);
+      await saveDatabase(data);
       return true;
     },
     async listBySubject(subjectId: string): Promise<Folder[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return Object.values(data.folders)
         .filter((f) => f.subjectId === subjectId)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     },
     async reorder(ids: string[]): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       ids.forEach((id, index) => {
         if (data.folders[id]) {
           data.folders[id].order = index;
         }
       });
-      saveDatabase(data);
+      await saveDatabase(data);
     },
   },
 
   // Items (Files & Images)
   items: {
     async get(id: string): Promise<Item | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return data.items[id] ?? null;
     },
     async create(input: Omit<Item, "id" | "createdAt" | "viewCount">): Promise<Item> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const id = "item_" + Math.random().toString(36).substring(2, 9);
       const item: Item = {
         id,
@@ -495,26 +564,26 @@ export const db = {
       };
       data.items[id] = item;
       data.stats.totalNotes = Object.keys(data.items).length;
-      saveDatabase(data);
+      await saveDatabase(data);
       return item;
     },
     async update(id: string, partial: Partial<Item>): Promise<Item | null> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.items[id]) return null;
       data.items[id] = { ...data.items[id], ...partial };
-      saveDatabase(data);
+      await saveDatabase(data);
       return data.items[id];
     },
     async delete(id: string): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.items[id]) return false;
       delete data.items[id];
       data.stats.totalNotes = Object.keys(data.items).length;
-      saveDatabase(data);
+      await saveDatabase(data);
       return true;
     },
     async listBySubject(subjectId: string, publishedOnly = false): Promise<Item[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       let list = Object.values(data.items).filter((i) => i.subjectId === subjectId);
       if (publishedOnly) {
         list = list.filter((i) => i.isPublished);
@@ -522,7 +591,7 @@ export const db = {
       return list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     },
     async listByFolder(subjectId: string, folderId: string | null, publishedOnly = false): Promise<Item[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       let list = Object.values(data.items).filter(
         (i) => i.subjectId === subjectId && (i.folderId || null) === folderId
       );
@@ -532,7 +601,7 @@ export const db = {
       return list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     },
     async incrementView(id: string, userId?: string): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (data.items[id]) {
         data.items[id].viewCount = (data.items[id].viewCount ?? 0) + 1;
       }
@@ -547,19 +616,19 @@ export const db = {
         ].slice(0, 30);
       }
 
-      saveDatabase(data);
+      await saveDatabase(data);
     },
     async reorder(ids: string[]): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       ids.forEach((id, index) => {
         if (data.items[id]) {
           data.items[id].order = index;
         }
       });
-      saveDatabase(data);
+      await saveDatabase(data);
     },
     async topViewed(limit = 6): Promise<Item[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return Object.values(data.items)
         .filter((i) => i.isPublished)
         .sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
@@ -583,7 +652,7 @@ export const db = {
   // Bookmarks
   bookmarks: {
     async list(userId: string): Promise<Item[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const userBookmarks = data.bookmarks[userId] ?? {};
       const itemIds = Object.keys(userBookmarks);
       return itemIds
@@ -591,7 +660,7 @@ export const db = {
         .filter((item): item is Item => Boolean(item && item.isPublished));
     },
     async toggle(userId: string, itemId: string, action?: "add" | "remove"): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.bookmarks[userId]) data.bookmarks[userId] = {};
       const exists = Boolean(data.bookmarks[userId][itemId]);
       const shouldAdd = action ? action === "add" : !exists;
@@ -601,7 +670,7 @@ export const db = {
       } else {
         delete data.bookmarks[userId][itemId];
       }
-      saveDatabase(data);
+      await saveDatabase(data);
       return shouldAdd;
     },
   },
@@ -609,7 +678,7 @@ export const db = {
   // Recent
   recent: {
     async list(userId: string, limit = 20): Promise<(Item & { viewedAt: string })[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const items = data.recent[userId] ?? [];
       const result: (Item & { viewedAt: string })[] = [];
 
@@ -631,7 +700,7 @@ export const db = {
   // Platform Global Stats
   stats: {
     async get(): Promise<StatsGlobal> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return {
         totalUsers: Object.keys(data.users).length,
         totalSubjects: Object.keys(data.subjects).length,
@@ -647,7 +716,7 @@ export const db = {
       subjectId: string,
       payload: SheetCommitPayload
     ): Promise<SheetCommitResult> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const now = new Date().toISOString();
       let appliedCount = 0;
       const createdIdMap: Record<string, string> = {};
@@ -838,7 +907,7 @@ export const db = {
       }
 
       data.stats.totalNotes = Object.keys(data.items).length;
-      saveDatabase(data);
+      await saveDatabase(data);
 
       const updatedFolders = Object.values(data.folders)
         .filter((f) => f.subjectId === subjectId)
@@ -861,11 +930,11 @@ export const db = {
   // Allowed Users (Private allowlist mode)
   allowedUsers: {
     async list(): Promise<AllowedUser[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       return Object.values(data.allowedUsers || {}).sort((a, b) => b.addedAt.localeCompare(a.addedAt));
     },
     async isAllowed(identifier: string): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const norm = identifier.trim().toLowerCase();
       if (data.allowedUsers?.[norm]) return true;
       const cleanPhone = norm.replace(/[\s-]/g, "");
@@ -874,7 +943,7 @@ export const db = {
       );
     },
     async add(identifier: string, addedBy = "admin", notes = ""): Promise<AllowedUser> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.allowedUsers) data.allowedUsers = {};
       const norm = identifier.trim().toLowerCase();
       const record: AllowedUser = {
@@ -884,11 +953,11 @@ export const db = {
         notes,
       };
       data.allowedUsers[norm] = record;
-      saveDatabase(data);
+      await saveDatabase(data);
       return record;
     },
     async addBulk(identifiers: string[], addedBy = "admin"): Promise<{ added: number; skipped: number }> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.allowedUsers) data.allowedUsers = {};
       let added = 0;
       let skipped = 0;
@@ -908,15 +977,15 @@ export const db = {
           added++;
         }
       }
-      saveDatabase(data);
+      await saveDatabase(data);
       return { added, skipped };
     },
     async remove(identifier: string): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const norm = identifier.trim().toLowerCase();
       if (!data.allowedUsers?.[norm]) return false;
       delete data.allowedUsers[norm];
-      saveDatabase(data);
+      await saveDatabase(data);
       return true;
     },
   },
@@ -924,7 +993,7 @@ export const db = {
   // Daily OTP Verification Usage Counter
   otpUsage: {
     async record(method: "email" | "phone" | "brevo" = "phone"): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.stats) {
         data.stats = { totalUsers: 0, totalSubjects: 0, totalNotes: 0, totalViews: 0 };
       }
@@ -941,10 +1010,10 @@ export const db = {
       else if (method === "brevo") rec.brevo = (rec.brevo || 0) + 1;
       rec.total = (rec.total || 0) + 1;
 
-      saveDatabase(data);
+      await saveDatabase(data);
     },
     async getDailyStats(days = 14): Promise<OtpUsageRecord[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const usageMap = data.stats?.otpUsage || {};
       const results: OtpUsageRecord[] = [];
 
@@ -969,7 +1038,7 @@ export const db = {
   // Brevo / Generic OTP Code store
   otpCodes: {
     async saveOtp(identifier: string, hashedCode: string, expiresAt: number): Promise<boolean> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.otpCodes) data.otpCodes = {};
       const norm = identifier.trim().toLowerCase();
 
@@ -994,28 +1063,28 @@ export const db = {
         requestCount,
         windowStart,
       };
-      saveDatabase(data);
+      await saveDatabase(data);
       return true;
     },
     async getOtp(identifier: string) {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const norm = identifier.trim().toLowerCase();
       return data.otpCodes?.[norm] || null;
     },
     async incrementAttempts(identifier: string): Promise<number> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const norm = identifier.trim().toLowerCase();
       if (!data.otpCodes?.[norm]) return 0;
       data.otpCodes[norm].attempts = (data.otpCodes[norm].attempts || 0) + 1;
-      saveDatabase(data);
+      await saveDatabase(data);
       return data.otpCodes[norm].attempts;
     },
     async deleteOtp(identifier: string): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const norm = identifier.trim().toLowerCase();
       if (data.otpCodes?.[norm]) {
         delete data.otpCodes[norm];
-        saveDatabase(data);
+        await saveDatabase(data);
       }
     },
   },
@@ -1023,7 +1092,7 @@ export const db = {
   // Manual OTP request / audit logs for Admin Panel
   otpLogs: {
     async list(limit = 50): Promise<OtpLogEntry[]> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       const logs = data.otpLogs || [];
       const now = Date.now();
       let changed = false;
@@ -1033,7 +1102,7 @@ export const db = {
           changed = true;
         }
       });
-      if (changed) saveDatabase(data);
+      if (changed) await saveDatabase(data);
       return logs
         .slice()
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -1041,7 +1110,7 @@ export const db = {
     },
 
     async record(identifier: string, code: string, expiresAt: number): Promise<OtpLogEntry> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.otpLogs) data.otpLogs = [];
       const entry: OtpLogEntry = {
         id: `otp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1055,12 +1124,12 @@ export const db = {
       if (data.otpLogs.length > 150) {
         data.otpLogs = data.otpLogs.slice(0, 150);
       }
-      saveDatabase(data);
+      await saveDatabase(data);
       return entry;
     },
 
     async markVerified(identifier: string): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       if (!data.otpLogs) return;
       const norm = identifier.trim().toLowerCase();
       let changed = false;
@@ -1072,13 +1141,13 @@ export const db = {
           changed = true;
         }
       });
-      if (changed) saveDatabase(data);
+      if (changed) await saveDatabase(data);
     },
 
     async clear(): Promise<void> {
-      const data = loadDatabase();
+      const data = await loadDatabase();
       data.otpLogs = [];
-      saveDatabase(data);
+      await saveDatabase(data);
     },
   },
 };
