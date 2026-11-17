@@ -2,7 +2,12 @@
 const nextConfig = {
   transpilePackages: ["@notes/shared"],
   images: {
-    domains: ["mega.nz"],
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "mega.nz",
+      },
+    ],
   },
 };
 

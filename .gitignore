@@ -9,11 +9,16 @@ out/
 build/
 dist/
 
-# Environment variables
+# Environment variables — NEVER commit these
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local database (contains user data / hashed passwords)
+**/data/db.json
+data/db.json
 
 # Expo / React Native
 .expo/
@@ -39,3 +44,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Vercel build cache
+.vercel/
