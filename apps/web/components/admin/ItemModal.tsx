@@ -103,8 +103,9 @@ export function ItemModal({
     }
 
     if (kind === "file") {
-      if (!megaFileLink.trim().startsWith(MEGA_URL_PREFIX)) {
-        setError(`File link must start with ${MEGA_URL_PREFIX}`);
+      const link = megaFileLink.trim();
+      if (!link.startsWith("http://") && !link.startsWith("https://")) {
+        setError("Please enter a valid link (starting with https:// or http://)");
         return;
       }
     } else {
@@ -234,18 +235,18 @@ export function ItemModal({
 
             <div>
               <label className="block text-slate-300 mb-1 font-medium">
-                MEGA File Public Link *
+                PDF / Note File Link *
               </label>
               <input
                 type="url"
                 value={megaFileLink}
                 onChange={(e) => setMegaFileLink(e.target.value)}
-                placeholder="https://mega.nz/file/..."
+                placeholder="https://mega.nz/file/... or Google Drive link"
                 className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-xs"
                 required
               />
               <p className="mt-1 text-[11px] text-slate-400">
-                Encrypted public share link generated directly from MEGA cloud.
+                Direct PDF link, MEGA share link, or Google Drive / cloud link.
               </p>
             </div>
           </>

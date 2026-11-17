@@ -17,9 +17,10 @@ import { NOTE_TYPES, MEGA_URL_PREFIX } from "./constants";
 export const MegaLinkSchema = z
   .string()
   .url({ message: "Must be a valid URL" })
-  .startsWith(MEGA_URL_PREFIX, {
-    message: `MEGA link must start with "${MEGA_URL_PREFIX}"`,
-  });
+  .refine(
+    (url) => url.startsWith("http://") || url.startsWith("https://"),
+    { message: "Must be a valid web link (http:// or https://)" }
+  );
 
 // ---------------------------------------------------------------------------
 // Subject (GATE Exam Subject)
@@ -66,11 +67,11 @@ export const ItemCreateSchema = z.object({
   isPublished: z.boolean().default(true),
 }).superRefine((data, ctx) => {
   if (data.kind === "file") {
-    if (!data.megaFileLink || !data.megaFileLink.startsWith(MEGA_URL_PREFIX)) {
+    if (!data.megaFileLink || (!data.megaFileLink.startsWith("http://") && !data.megaFileLink.startsWith("https://"))) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["megaFileLink"],
-        message: `File items require a MEGA link starting with ${MEGA_URL_PREFIX}`,
+        message: "File items require a valid web link (https://...)",
       });
     }
   } else if (data.kind === "image") {

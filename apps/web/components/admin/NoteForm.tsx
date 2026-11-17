@@ -39,8 +39,9 @@ export function NoteForm({
       setError("Note title is required");
       return;
     }
-    if (!megaFileLink.trim().startsWith("https://mega.nz/")) {
-      setError("MEGA link must start with https://mega.nz/");
+    const link = megaFileLink.trim();
+    if (!link.startsWith("http://") && !link.startsWith("https://")) {
+      setError("Please enter a valid link (starting with https:// or http://)");
       return;
     }
 
@@ -118,14 +119,14 @@ export function NoteForm({
 
       <div>
         <label className="block text-gray-400 mb-1 font-semibold uppercase text-[10px]">
-          MEGA Public File Share Link *
+          PDF / Document File Link *
         </label>
         <input
           type="url"
           required
           value={megaFileLink}
           onChange={(e) => setMegaFileLink(e.target.value)}
-          placeholder="https://mega.nz/file/XXXXXX#YYYYYY"
+          placeholder="https://mega.nz/file/... or Google Drive / PDF link"
           className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
         />
         <MegaLinkChecker url={megaFileLink} />

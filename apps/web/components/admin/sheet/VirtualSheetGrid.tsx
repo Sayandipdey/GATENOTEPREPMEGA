@@ -185,7 +185,7 @@ export function VirtualSheetGrid({
 
           const hasInvalidLink =
             row.kind === "file" &&
-            (!row.megaFileLink || !row.megaFileLink.startsWith(MEGA_URL_PREFIX));
+            (!row.megaFileLink || (!row.megaFileLink.startsWith("http://") && !row.megaFileLink.startsWith("https://")));
 
           const isDuplicateLink =
             row.kind === "file" && Boolean(row.megaFileLink && duplicateLinks.has(row.megaFileLink));
