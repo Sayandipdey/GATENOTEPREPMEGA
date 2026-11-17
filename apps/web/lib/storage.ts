@@ -20,9 +20,10 @@ export async function getUploadConfig(filename: string, contentType: string) {
   // If Firebase Admin credentials are set, generate signed URL
   if (bucketName && privateKey && clientEmail) {
     try {
-      // Lazy-import to avoid breaking if optional package isn't installed
-      // @ts-ignore - optional peer dependency; app works without it (falls back to local uploads)
-      const { Storage } = await import("@google-cloud/storage");
+      // Dynamic require so webpack does not fail the build when optional dependency is not installed
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const gcs = (eval("require"))("@google-cloud/storage");
+      const Storage = gcs.Storage;
       const storage = new Storage({
         credentials: {
           client_email: clientEmail,

@@ -50,12 +50,31 @@ interface DatabaseSchema {
 let memoryDb: DatabaseSchema | null = null;
 
 function getDbFilePath(): string {
+  // Check candidate locations for existing db.json
+  const candidates = [
+    path.resolve(process.cwd(), "data", "db.json"),
+    path.resolve(process.cwd(), "apps", "web", "data", "db.json"),
+    path.resolve(__dirname, "..", "data", "db.json"),
+  ];
+
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {}
+  }
+
+  // In Vercel serverless functions, /tmp is writable
+  const tmpPath = path.resolve("/tmp", "gate-notes-db.json");
+  try {
+    if (fs.existsSync(tmpPath)) return tmpPath;
+  } catch {}
+
   const defaultDir = path.resolve(process.cwd(), "data");
   if (!fs.existsSync(defaultDir)) {
     try {
       fs.mkdirSync(defaultDir, { recursive: true });
     } catch {
-      return path.resolve("/tmp", "gate-notes-db.json");
+      return tmpPath;
     }
   }
   return path.resolve(defaultDir, "db.json");
@@ -272,7 +291,11 @@ function saveDatabase(data: DatabaseSchema): void {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
-    console.warn("Could not persist database to disk:", err);
+    try {
+      fs.writeFileSync(path.resolve("/tmp", "gate-notes-db.json"), JSON.stringify(data, null, 2), "utf-8");
+    } catch {
+      console.warn("Could not persist database to disk:", err);
+    }
   }
 }
 
